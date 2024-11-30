@@ -1,6 +1,6 @@
 class Notification < ApplicationRecord
   # Associations
-  belongs_to :course
+  belongs_to :course, foreign_key: :course_name, primary_key: :name
   belongs_to :user
 
   # Validations
