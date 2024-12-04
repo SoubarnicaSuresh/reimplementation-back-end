@@ -1,19 +1,37 @@
 require 'rails_helper'
+require 'rails_helper'
 
-RSpec.describe Api::V1::NotificationsController, type: :controller do
-  # Setup test data
-  let(:course) { Course.create(name: "Sample Course") }
-  let(:user) { User.create(name: "sampleuser", email: "sampleuser@example.com", password: "password", full_name: "Sample User", role_id: 1) }
-  let!(:notification) { Notification.create(subject: "Test Subject", description: "Test Description", expiration_date: 1.week.from_now, course: course, user: user) }
-  let!(:another_notification) { Notification.create(subject: "Another Test Subject", description: "Another Test Description", expiration_date: 2.weeks.from_now, course: course, user: user) }
+RSpec.describe 'Notifications API', type: :request do
+  let(:institution) { Institution.create(id: 100, name: 'NCSU') }
+  let(:user) do
+    institution
+    User.create(id: 1, name: "admin", full_name: "admin", email: "admin@gmail.com", password_digest: "admin", role_id: 2, institution_id: institution.id)
+  end
+  let(:course) { Course.create(id: 101, name: 'CSC 574', institution_id: institution.id) }
 
-  # Tests for the #index action
-  describe "GET #index" do
-    it "returns a list of notifications" do
-      get :index
-      expect(response).to have_http_status(:success)
-      expect(response.content_type).to include("application/json")
-      expect(JSON.parse(response.body).size).to eq(2) # Ensure there are 2 notifications
+  before do
+    Notification.create(id: 1, course_name: course.name, user: user)
+  end
+
+  path '/api/v1/notifications' do
+    get('list notifications') do
+      tags 'Notifications'
+      produces 'application/json'
+
+      response(200, 'Success') do
+        let!(:notifications) { create_list(:notification, 5, user: user, course_name: course.name) }
+
+        after do |example|
+          example.metadata[:response][:content] = {
+            'application/json' => {
+              example: JSON.parse(response.body, symbolize_names: true)
+            }
+          }
+        end
+        run_test! do |response|
+          expect(JSON.parse(response.body).size).to eq(5)
+        end
+      end
     end
 
     it "returns notifications in the correct format" do
@@ -26,22 +44,134 @@ RSpec.describe Api::V1::NotificationsController, type: :controller do
     end
   end
 
-  # Tests for the #show action
-  describe "GET #show" do
-    it "returns the correct notification" do
-      get :show, params: { id: notification.id }
-      expect(response).to have_http_status(:success)
-      expect(response.content_type).to include("application/json")
-      notification_response = JSON.parse(response.body)
-      expect(notification_response["id"]).to eq(notification.id)
-      expect(notification_response["subject"]).to eq(notification.subject)
-      expect(notification_response["description"]).to eq(notification.description)
-      expect(notification_response["expiration_date"]).to eq(notification.expiration_date.as_json) # Format match
+  path '/api/v1/notifications/{id}' do
+    parameter name: :id, in: :path, type: :integer, description: 'ID of the notification'
+
+    get('show notification') do
+      tags 'Notifications'
+      response(200, 'Success') do
+        let(:id) { Notification.first.id }
+
+        after do |example|
+          example.metadata[:response][:content] = {
+            'application/json' => {
+              example: JSON.parse(response.body, symbolize_names: true)
+            }
+          }
+        end
+        run_test!
+      end
+
+      response(404, 'Not Found') do
+        let(:id) { 'INVALID' }
+
+        after do |example|
+          example.metadata[:response][:content] = {
+            'application/json' => {
+              example: JSON.parse(response.body, symbolize_names: true)
+            }
+          }
+        end
+        run_test!
+      end
     end
 
-    it "returns a 404 if the notification is not found" do
-      get :show, params: { id: 9999 } # Assuming there's no notification with this ID
-      expect(response).to have_http_status(:not_found)
+    patch('update notification') do
+      tags 'Notifications'
+      consumes 'application/json'
+      parameter name: :notification, in: :body, schema: {
+        type: :object,
+        properties: {
+          subject: { type: :string },
+          description: { type: :string },
+          expiration_date: { type: :string, format: :date },
+          active_flag: { type: :boolean }
+        }
+      }
+
+      response(200, 'Updated') do
+        let(:id) { Notification.first.id }
+        let(:notification) { { subject: 'Updated Notification', active_flag: true } }
+
+        after do |example|
+          example.metadata[:response][:content] = {
+            'application/json' => {
+              example: JSON.parse(response.body, symbolize_names: true)
+            }
+          }
+        end
+        run_test!
+      end
+
+      response(404, 'Not Found') do
+        let(:id) { 'INVALID' }
+        let(:notification) { { subject: 'Updated Notification', active_flag: true } }
+
+        after do |example|
+          example.metadata[:response][:content] = {
+            'application/json' => {
+              example: JSON.parse(response.body, symbolize_names: true)
+            }
+          }
+        end
+        run_test!
+      end
+    end
+
+    delete('delete notification') do
+      tags 'Notifications'
+
+      response(204, 'Deleted') do
+        let(:id) { Notification.first.id }
+        run_test!
+      end
+
+      response(404, 'Not Found') do
+        let(:id) { 'INVALID' }
+
+        after do |example|
+          example.metadata[:response][:content] = {
+            'application/json' => {
+              example: JSON.parse(response.body, symbolize_names: true)
+            }
+          }
+        end
+        run_test!
+      end
+    end
+  end
+
+  path '/api/v1/notifications/{id}/toggle_active' do
+    parameter name: :id, in: :path, type: :integer, description: 'ID of the notification'
+
+    patch('toggle notification visibility') do
+      tags 'Notifications'
+
+      response(200, 'Visibility toggled') do
+        let(:id) { Notification.first.id }
+
+        after do |example|
+          example.metadata[:response][:content] = {
+            'application/json' => {
+              example: JSON.parse(response.body, symbolize_names: true)
+            }
+          }
+        end
+        run_test!
+      end
+
+      response(404, 'Not Found') do
+        let(:id) { 'INVALID' }
+
+        after do |example|
+          example.metadata[:response][:content] = {
+            'application/json' => {
+              example: JSON.parse(response.body, symbolize_names: true)
+            }
+          }
+        end
+        run_test!
+      end
     end
   end
 end
